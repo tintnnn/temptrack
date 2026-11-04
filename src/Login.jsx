@@ -3,7 +3,7 @@ import { useApp } from "./store.js";
 import { Icon } from "./icons.jsx";
 
 export function Login() {
-  const { signIn } = useApp();
+  const { signIn, resetPassword } = useApp();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
@@ -20,15 +20,19 @@ export function Login() {
       setError("Enter a valid email address.");
       return;
     }
-    if (password.length < 4) {
-      setError("Password must be at least 4 characters.");
+    if (!password) {
+      setError("Enter your password.");
       return;
     }
     setBusy(true);
-    setTimeout(() => {
+    signIn(remember, email.trim(), password).catch((authError) => {
       setBusy(false);
-      signIn(remember, email.trim());
-    }, 650);
+      setError(
+        authError.code === "auth/invalid-credential" || authError.code === "auth/user-not-found"
+          ? "The email or password is incorrect."
+          : authError.message || "Unable to sign in. Please try again."
+      );
+    });
   }
 
   return (
@@ -160,9 +164,9 @@ export function Login() {
         <div className="modal-scrim" onClick={() => setForgot(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-labelledby="reset-title">
             <h3 id="reset-title">Reset your password</h3>
-            <p>We’ll prepare a reset note for the address on this form. This demo does not send email.</p>
+            <p>We’ll send a password reset link to the address on this form.</p>
             {sent ? (
-              <p className="success-copy">Reset instructions are ready for {email || "your email"}.</p>
+              <p className="success-copy">Reset instructions were sent to {email || "your email"}.</p>
             ) : (
               <label className="field">
                 <span>Email address</span>
@@ -177,7 +181,19 @@ export function Login() {
                 Close
               </button>
               {!sent && (
-                <button className="btn primary" type="button" onClick={() => setSent(true)}>
+                <button
+                  className="btn primary"
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await resetPassword(email.trim());
+                      setSent(true);
+                    } catch (authError) {
+                      setError(authError.message || "Unable to send the reset link.");
+                      setForgot(false);
+                    }
+                  }}
+                >
                   Send reset link
                 </button>
               )}

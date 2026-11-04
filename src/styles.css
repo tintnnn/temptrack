@@ -150,8 +150,8 @@ p { margin: 0; }
 @keyframes pulse { 70% { box-shadow: 0 0 0 7px transparent; } }
 .pill { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 4px 9px; font-size: 12px; font-weight: 700; text-transform: capitalize; background: var(--mint); color: #157a56; }
 .pill.on-dark { background: rgba(67,190,143,0.18); color: #8ee2bf; }
-.pill.warning, .pill.high { background: #fff4e4; color: #a86b12; }
-.pill.critical, .pill.low { background: #fdecec; color: #b42318; }
+.pill.warning { background: #fff4e4; color: #a86b12; }
+.pill.alert { background: #fdecec; color: #b42318; }
 .pill.resolved, .pill.normal { background: var(--mint); color: #157a56; }
 
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: 268px 1fr; }
@@ -208,7 +208,7 @@ p { margin: 0; }
 .popover button small { color: var(--muted); }
 .lvl { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex: none; background: var(--green-500); }
 .lvl.warning { background: var(--amber); }
-.lvl.critical { background: var(--red); }
+.lvl.alert { background: var(--red); }
 
 .content { padding: 8px 28px 28px; }
 .page-head { align-items: flex-end; margin: 12px 0 18px; }
@@ -236,7 +236,7 @@ p { margin: 0; }
 .m-icon.blue { background: #e8f3fb; color: var(--blue); }
 .m-icon.purple { background: #f1eefb; color: var(--purple); }
 .m-icon.green, .sum.resolved { background: var(--mint); color: var(--green-700); }
-.sum.critical { background: #fdecec; color: var(--red); }
+.sum.alert { background: #fdecec; color: var(--red); }
 .m-label { color: var(--muted); }
 .m-value { margin-top: 18px; font-family: Manrope, sans-serif; font-size: 40px; font-weight: 800; letter-spacing: -0.04em; }
 .m-value.word { font-size: 28px; line-height: 1.15; }
@@ -263,7 +263,7 @@ p { margin: 0; }
 .alert.read { opacity: 0.55; }
 .symbol { width: 36px; height: 36px; }
 .symbol.warning { background: #fff4e4; color: #b7791f; }
-.symbol.critical { background: #fdecec; color: var(--red); }
+.symbol.alert { background: #fdecec; color: var(--red); }
 .symbol.resolved { background: var(--mint); color: var(--green-700); }
 .copy { display: grid; }
 .copy span, .meta time, .insights time, .timeline time { color: var(--muted); font-size: 13px; }
