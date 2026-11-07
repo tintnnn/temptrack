@@ -430,7 +430,7 @@ export function AnalyticsPage() {
           {rows.length ? (
             <div className="insights">
               <p><b>{statuses.Alert || 0}</b> alert readings, <b>{statuses.Warning || 0}</b> warning readings, and <b>{statuses.Normal || 0}</b> normal readings.</p>
-              <p>Status comes from the ESP32: below 30°C and below 70% humidity is normal, below 35°C and below 80% humidity is warning, otherwise it is alert.</p>
+              <p>Status is temperature-based: ≤29°C is Normal, &gt;29°C through 33°C is Warning, and &gt;33°C is Alert. Humidity is advisory only.</p>
             </div>
           ) : <p className="empty-copy">No archived readings exist in the selected range. New readings are saved to Firestore while the dashboard is connected.</p>}
         </section>
@@ -651,11 +651,17 @@ export function AlertsPage() {
   const [filter, setFilter] = useState("all");
   const [sort, setSort] = useState("new");
   const items = alerts
-    .filter((alert) => (filter === "all" ? true : alert.level === filter))
+    .filter((alert) => (
+      filter === "all"
+        ? true
+        : filter === "warm"
+          ? alert.level === "warning" || alert.level === "warm"
+          : alert.level === filter
+    ))
     .sort((a, b) => (sort === "new" ? b.at - a.at : a.at - b.at));
   const counts = {
     alert: alerts.filter((alert) => alert.level === "alert").length,
-    warning: alerts.filter((alert) => alert.level === "warning").length,
+    warning: alerts.filter((alert) => alert.level === "warning" || alert.level === "warm").length,
     resolved: alerts.filter((alert) => alert.level === "resolved").length,
   };
 
@@ -685,7 +691,7 @@ export function AlertsPage() {
             <strong>{counts.warning}</strong>
             <span>Warnings</span>
           </div>
-          <small>Preliminary events</small>
+          <small>Temperature above 29°C through 33°C</small>
         </article>
         <article className="card">
           <span className="sum resolved">
@@ -736,12 +742,12 @@ export function AlertsPage() {
           <Icon name="chevron" size={16} />
           <span>
             <i className="led yellow" /> <b>Warning</b>
-            <small>Outside the normal range for 3 minutes</small>
+            <small>Temperature above 29°C through 33°C</small>
           </span>
           <Icon name="chevron" size={16} />
           <span>
             <i className="led red" /> <b>Alert</b>
-            <small>ESP32 reports ALERT</small>
+            <small>Temperature above 33°C</small>
           </span>
         </div>
       </section>
@@ -915,15 +921,15 @@ export function SettingsPage() {
                 </div>
               </div>
               <div className="form-grid">
-                <NumberField label="Normal temperature cutoff" unit="°C" help="ESP32 normal temperature rule: temperature must be below this value." value={settings.minTemp} onChange={(v) => patch("minTemp", v)} />
-                <NumberField label="Alert temperature cutoff" unit="°C" help="ESP32 alert temperature rule: temperature must be below this value for warning status." value={settings.maxTemp} onChange={(v) => patch("maxTemp", v)} />
-                <NumberField label="Normal humidity cutoff" unit="%" help="ESP32 normal humidity rule: humidity must be below this value." value={settings.maxHumidity} onChange={(v) => patch("maxHumidity", v)} />
+                <NumberField label="Normal temperature maximum" unit="°C" help="Temperatures at or below this value are Normal." value={settings.minTemp} onChange={(v) => patch("minTemp", v)} />
+                <NumberField label="Warning temperature maximum" unit="°C" help="Temperatures above the Normal maximum and at or below this value are Warning. Higher temperatures are Alert." value={settings.maxTemp} onChange={(v) => patch("maxTemp", v)} />
               </div>
               <div className="zones">
-                <span><i className="zone ok" /><b>&lt; {settings.minTemp}°C / &lt; {settings.maxHumidity}%</b> Normal</span>
-                <span><i className="zone low" /><b>&lt; {settings.maxTemp}°C / &lt; 80%</b> Warning</span>
-                <span><i className="zone high" /><b>Otherwise</b> Alert</span>
+                <span><i className="zone ok" /><b>≤ {settings.minTemp}°C</b> Normal</span>
+                <span><i className="zone low" /><b>&gt; {settings.minTemp}°C to ≤ {settings.maxTemp}°C</b> Warning</span>
+                <span><i className="zone high" /><b>&gt; {settings.maxTemp}°C</b> Alert</span>
               </div>
+              <p className="empty-copy">Humidity does not change the temperature status. At 70% or higher, the ESP32 reports a high-humidity advisory.</p>
             </section>
           )}
           {tab === "data" && (

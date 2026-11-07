@@ -1,6 +1,6 @@
 export const DEFAULT_SETTINGS = {
-  minTemp: "30",
-  maxTemp: "35",
+  minTemp: "29",
+  maxTemp: "33",
   maxHumidity: "70",
   interval: "5",
   push: false,
@@ -26,18 +26,17 @@ export function userFromEmail(email) {
 }
 
 export function classify(temp, humidity, settings) {
-  const normalMax = numberOrNull(settings.minTemp) ?? 30;
-  const alertTemp = numberOrNull(settings.maxTemp) ?? 35;
-  const normalHumidity = numberOrNull(settings.maxHumidity) ?? 70;
-  if (temp < normalMax && humidity < normalHumidity) return "Normal";
-  if (temp < alertTemp && humidity < 80) return "Warning";
+  const normalMax = numberOrNull(settings.minTemp) ?? 29;
+  const alertTemp = numberOrNull(settings.maxTemp) ?? 33;
+  if (temp <= normalMax) return "Normal";
+  if (temp <= alertTemp) return "Warning";
   return "Alert";
 }
 
 export function normalizeStatus(status) {
   const normalized = String(status || "").trim().toUpperCase();
   if (normalized === "NORMAL") return "Normal";
-  if (normalized === "WARNING") return "Warning";
+  if (normalized === "WARM" || normalized === "WARNING") return "Warning";
   if (normalized === "ALERT") return "Alert";
   return null;
 }

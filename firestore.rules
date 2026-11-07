@@ -30,8 +30,8 @@ service cloud.firestore {
           "occurredAt",
           "source"
         ])
-        && request.resource.data.level in ["normal", "warning", "alert"]
-        && request.resource.data.status in ["Normal", "Warning", "Alert"]
+        && request.resource.data.level in ["normal", "warning", "warm", "alert"]
+        && request.resource.data.status in ["Normal", "Warm", "Warning", "Alert"]
         && request.resource.data.occurredAt is timestamp;
       allow delete: if false;
     }

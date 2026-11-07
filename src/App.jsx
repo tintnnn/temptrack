@@ -157,7 +157,7 @@ export default function App() {
         const value = document.data();
         return {
           id: document.id,
-          level: value.level,
+          level: value.level === "warm" ? "warning" : value.level,
           title: value.title,
           detail: value.detail,
           time: formatWhen(value.occurredAt?.toDate?.() || new Date()),
@@ -334,7 +334,7 @@ export default function App() {
               <h2 id="alert-title">
                 {alertPopup.status === "Alert"
                   ? "Reminder: open the air conditioner"
-                  : alertPopup.status === "Warning"
+                      : alertPopup.status === "Warning"
                     ? "Reminder: monitor the environment"
                     : "Conditions returned to normal"}
               </h2>
