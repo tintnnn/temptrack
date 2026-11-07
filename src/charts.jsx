@@ -14,12 +14,14 @@ export function AreaChart({
   const width = 640;
   const padX = 16;
   const padY = 16;
-  const min = Math.min(...data);
-  const max = Math.max(...data);
+  const safeData = data.filter((value) => Number.isFinite(value));
+  if (!safeData.length) return <p className="empty-copy">No readings yet.</p>;
+  const min = Math.min(...safeData);
+  const max = Math.max(...safeData);
   const span = Math.max(max - min, 0.8);
   const yFor = (v) => padY + ((max - v) / span) * (height - padY * 2);
-  const xFor = (i) => padX + (i / Math.max(data.length - 1, 1)) * (width - padX * 2);
-  const points = data.map((v, i) => [xFor(i), yFor(v)]);
+  const xFor = (i) => padX + (i / Math.max(safeData.length - 1, 1)) * (width - padX * 2);
+  const points = safeData.map((v, i) => [xFor(i), yFor(v)]);
   const line = points.map((p) => p.join(",")).join(" ");
   const area = `${padX},${height - 8} ${line} ${width - padX},${height - 8}`;
   const grids = [0.2, 0.5, 0.8].map((g) => padY + g * (height - padY * 2));
@@ -70,7 +72,7 @@ export function AreaChart({
           style={{ left: `${(points[hover][0] / width) * 100}%` }}
         >
           <strong>
-            {data[hover]}
+            {safeData[hover]}
             {unit}
           </strong>
           <span>{labels?.[hover]}</span>
@@ -78,8 +80,8 @@ export function AreaChart({
       )}
       {labels && (
         <div className="chart-labels">
-          {labels.filter((_, i) => i % Math.ceil(labels.length / 5) === 0 || i === labels.length - 1).map((label) => (
-            <span key={label}>{label}</span>
+          {labels.filter((_, i) => i % Math.max(1, Math.ceil(labels.length / 5)) === 0 || i === labels.length - 1).map((label, index) => (
+            <span key={`${label}-${index}`}>{label}</span>
           ))}
         </div>
       )}

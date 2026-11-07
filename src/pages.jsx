@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useApp } from "./store.js";
 import { AreaChart } from "./charts.jsx";
-import { classify, formatWhen } from "./data.js";
+import { formatWhen, statusForReading } from "./data.js";
 import { Icon } from "./icons.jsx";
 
 function Header({ kicker, title, text, children }) {
@@ -38,8 +38,30 @@ function Delta({ value, down = false, label = "vs last hour" }) {
   );
 }
 
-function chartSeries(readings) {
-  const ordered = [...readings].reverse();
+function chartSeries(readings, bucketMs = 0) {
+  const ordered = [...readings].sort((a, b) => a.at - b.at);
+  if (bucketMs) {
+    const buckets = new Map();
+    ordered.forEach((row) => {
+      const start = Math.floor(row.at.getTime() / bucketMs) * bucketMs;
+      const bucket = buckets.get(start) || { temp: [], hum: [], at: new Date(start) };
+      bucket.temp.push(row.temp);
+      bucket.hum.push(row.hum);
+      buckets.set(start, bucket);
+    });
+    return {
+      temp: [...buckets.values()].map((bucket) => bucket.temp.reduce((sum, value) => sum + value, 0) / bucket.temp.length),
+      hum: [...buckets.values()].map((bucket) => bucket.hum.reduce((sum, value) => sum + value, 0) / bucket.hum.length),
+      labels: [...buckets.values()].map((bucket) => {
+        const options = bucketMs <= 60 * 1000
+          ? { hour: "numeric", minute: "2-digit" }
+          : bucketMs <= 60 * 60 * 1000
+            ? { month: "short", day: "numeric", hour: "numeric" }
+            : { month: "short", day: "numeric" };
+        return bucket.at.toLocaleString("en-US", options);
+      }),
+    };
+  }
   return {
     temp: ordered.map((row) => row.temp),
     hum: ordered.map((row) => row.hum),
@@ -57,7 +79,7 @@ function delta(current, previous, unit) {
 }
 
 export function DashboardPage() {
-  const { readings, alerts, latest, settings, setPage } = useApp();
+  const { readings, alerts, latest, settings, firebaseConnected, setPage } = useApp();
   const series = chartSeries(readings);
   const avg = readings.length
     ? (readings.reduce((sum, row) => sum + row.temp, 0) / readings.length).toFixed(1)
@@ -65,7 +87,7 @@ export function DashboardPage() {
   const previous = readings[1];
   const tempChange = delta(latest?.temp, previous?.temp, "°C");
   const humChange = delta(latest?.hum, previous?.hum, "%");
-  const status = latest ? classify(latest.temp, latest.hum, settings) : "No data";
+  const status = latest ? statusForReading(latest, readings, settings) : "No data";
 
   return (
     <>
@@ -91,7 +113,7 @@ export function DashboardPage() {
           </span>
           <div>
             <span>Firebase</span>
-            <strong>{settings.databaseUrl ? "URL saved" : "Not connected"}</strong>
+            <strong>{firebaseConnected ? "Connected" : "Not connected"}</strong>
           </div>
         </div>
         <div>
@@ -205,7 +227,7 @@ function ReadingChart({ data, labels, color, unit, height }) {
 export function LivePage() {
   const { readings, latest, settings } = useApp();
   const series = chartSeries(readings);
-  const status = latest ? classify(latest.temp, latest.hum, settings) : "NO DATA";
+  const status = latest ? statusForReading(latest, readings, settings).toUpperCase() : "NO DATA";
   const tempPct = latest ? Math.min(100, Math.max(4, ((latest.temp - 10) / 30) * 100)) : 0;
   const humPct = latest ? Math.min(100, Math.max(4, latest.hum)) : 0;
 
@@ -305,18 +327,29 @@ function Gauge({ title, value, unit, pct, tone, state }) {
 }
 
 const RANGE_MS = {
+  "By hour": 60 * 60 * 1000,
   "24 hours": 24 * 60 * 60 * 1000,
-  "7 days": 7 * 24 * 60 * 60 * 1000,
-  "30 days": 30 * 24 * 60 * 60 * 1000,
+  Week: 7 * 24 * 60 * 60 * 1000,
+  Month: 30 * 24 * 60 * 60 * 1000,
+};
+
+const RANGE_BUCKETS = {
+  "By hour": 60 * 1000,
+  "24 hours": 60 * 60 * 1000,
+  Week: 24 * 60 * 60 * 1000,
+  Month: 24 * 60 * 60 * 1000,
 };
 
 export function AnalyticsPage() {
-  const { readings } = useApp();
-  const [range, setRange] = useState("7 days");
+  const { historyReadings, settings } = useApp();
+  const [range, setRange] = useState("Week");
   const [tab, setTab] = useState("Overview");
-  const cutoff = Date.now() - RANGE_MS[range];
-  const rows = readings.filter((row) => row.at.getTime() >= cutoff);
-  const series = chartSeries(rows);
+  const latestArchivedTime = historyReadings.length
+    ? Math.max(...historyReadings.map((row) => row.at.getTime()))
+    : Date.now();
+  const cutoff = latestArchivedTime - (RANGE_MS[range] || RANGE_MS.Week);
+  const rows = historyReadings.filter((row) => row.at.getTime() >= cutoff);
+  const series = chartSeries(rows, RANGE_BUCKETS[range]);
   const temps = rows.map((row) => row.temp);
   const hums = rows.map((row) => row.hum);
   const showTemp = tab !== "Humidity";
@@ -325,10 +358,27 @@ export function AnalyticsPage() {
   const min = temps.length ? `${Math.min(...temps).toFixed(1)}°C` : "—";
   const max = temps.length ? `${Math.max(...temps).toFixed(1)}°C` : "—";
   const hum = hums.length ? `${Math.round(hums.reduce((a, b) => a + b, 0) / hums.length)}%` : "—";
+  const statuses = rows.reduce((counts, row) => {
+    const status = statusForReading(row, rows, settings);
+    counts[status] = (counts[status] || 0) + 1;
+    return counts;
+  }, {});
+  const recent = rows.slice(0, 5);
+  const trend = recent.length >= 2
+    ? (recent[0].temp - recent[recent.length - 1].temp) / (recent.length - 1)
+    : 0;
+  const projected = recent.length ? recent[0].temp + trend * 6 : null;
+  const recommendation = !rows.length
+    ? "Recommendations appear once sensor readings arrive."
+    : statuses.Alert
+      ? "Investigate the station immediately and check ventilation or heat sources."
+      : statuses.Warning
+        ? "Conditions are approaching a limit. Monitor the next readings closely."
+        : "Conditions are stable. Continue monitoring for changes.";
 
   return (
     <>
-      <Header kicker="Sensor intelligence" title="Analytics" text="Understand patterns, diagnose events, and plan ahead.">
+      <Header kicker="Sensor intelligence" title="Analytics" text="Analyze archived Firestore readings, diagnose events, and plan ahead.">
         <div className="segmented">
           {Object.keys(RANGE_MS).map((key) => (
             <button key={key} className={range === key ? "active" : ""} onClick={() => setRange(key)}>
@@ -348,7 +398,10 @@ export function AnalyticsPage() {
         <div className="section-head">
           <div>
             <h2>{tab === "Comparisons" ? "Temperature vs humidity" : "Descriptive analytics"}</h2>
-            <p>Summary statistics for the last {range}</p>
+            <p>
+              {rows.length} archived reading{rows.length === 1 ? "" : "s"} in the last {range}
+              {range === "By hour" ? " · minute view" : ""}
+            </p>
           </div>
         </div>
         <div className="stats-row">
@@ -374,16 +427,28 @@ export function AnalyticsPage() {
               <p>Unusual readings and possible causes</p>
             </div>
           </div>
-          <p className="empty-copy">Unusual events will be listed after readings arrive.</p>
+          {rows.length ? (
+            <div className="insights">
+              <p><b>{statuses.Alert || 0}</b> alert readings, <b>{statuses.Warning || 0}</b> warning readings, and <b>{statuses.Normal || 0}</b> normal readings.</p>
+              <p>Status is temperature-based: ≤29°C is Normal, &gt;29°C through 33°C is Warning, and &gt;33°C is Alert. Humidity is advisory only.</p>
+            </div>
+          ) : <p className="empty-copy">No archived readings exist in the selected range. New readings are saved to Firestore while the dashboard is connected.</p>}
         </section>
         <section className="card">
           <div className="section-head">
             <div>
               <h2>Predictive analytics</h2>
-              <p>Estimated trend · Next 6 hours</p>
+              <p>Estimated trend from the latest archived readings · Next 6 readings</p>
             </div>
           </div>
-          <p className="empty-copy">A forecast needs a history of readings.</p>
+          {projected == null ? (
+            <p className="empty-copy">A forecast needs Firebase history in the selected range.</p>
+          ) : (
+            <div className="insights">
+              <p>At the current trend, temperature may reach <b>{projected.toFixed(1)}°C</b> in approximately 6 readings.</p>
+              <p>Trend: <b>{trend > 0 ? "+" : ""}{trend.toFixed(1)}°C per reading</b>.</p>
+            </div>
+          )}
         </section>
       </div>
       <section className="card">
@@ -393,7 +458,7 @@ export function AnalyticsPage() {
             <p>Actions based on current conditions and forecast</p>
           </div>
         </div>
-        <p className="empty-copy">Recommendations appear once there is enough sensor history.</p>
+        <p className="empty-copy">{recommendation} When the ESP32 reports ALERT, notify authorized staff to turn on the air conditioner or increase ventilation.</p>
       </section>
     </>
   );
@@ -410,7 +475,7 @@ function Stat({ label, value, note, tone = "" }) {
 }
 
 export function HistoryPage() {
-  const { readings, settings, toast } = useApp();
+  const { historyReadings, settings, toast } = useApp();
   const [query, setQuery] = useState("");
   const [range, setRange] = useState("all");
   const [status, setStatus] = useState("All statuses");
@@ -420,16 +485,16 @@ export function HistoryPage() {
 
   const rows = useMemo(() => {
     const limit = range === "all" ? Infinity : Number(range) * 24 * 60 * 60 * 1000;
-    return readings
+    return historyReadings
       .filter((row) => Date.now() - row.at.getTime() <= limit)
-      .map((row) => ({ ...row, liveStatus: classify(row.temp, row.hum, settings), label: formatWhen(row.at) }))
+      .map((row) => ({ ...row, liveStatus: statusForReading(row, historyReadings, settings), label: formatWhen(row.at) }))
       .filter((row) => {
         const blob = `${row.label} ${row.device || ""} ${row.liveStatus}`.toLowerCase();
         if (query && !blob.includes(query.toLowerCase())) return false;
         if (status !== "All statuses" && row.liveStatus !== status) return false;
         return true;
       });
-  }, [readings, query, status, range, settings]);
+  }, [historyReadings, query, status, range, settings]);
 
   const pages = Math.max(1, Math.ceil(rows.length / perPage));
   const safePage = Math.min(page, pages);
@@ -492,7 +557,7 @@ export function HistoryPage() {
                 setPage(1);
               }}
             >
-              {["All statuses", "Normal", "Warning", "High", "Low", "Unclassified"].map((s) => (
+              {["All statuses", "Normal", "Warning", "Alert"].map((s) => (
                 <option key={s}>{s}</option>
               ))}
             </select>
@@ -514,7 +579,7 @@ export function HistoryPage() {
               {view.length === 0 && (
                 <tr>
                   <td colSpan="6" className="empty">
-                    {readings.length ? "No records match those filters." : "No records yet."}
+                    {historyReadings.length ? "No records match those filters." : "No records yet."}
                   </td>
                 </tr>
               )}
@@ -586,11 +651,17 @@ export function AlertsPage() {
   const [filter, setFilter] = useState("all");
   const [sort, setSort] = useState("new");
   const items = alerts
-    .filter((alert) => (filter === "all" ? true : alert.level === filter))
+    .filter((alert) => (
+      filter === "all"
+        ? true
+        : filter === "warm"
+          ? alert.level === "warning" || alert.level === "warm"
+          : alert.level === filter
+    ))
     .sort((a, b) => (sort === "new" ? b.at - a.at : a.at - b.at));
   const counts = {
-    critical: alerts.filter((alert) => alert.level === "critical").length,
-    warning: alerts.filter((alert) => alert.level === "warning").length,
+    alert: alerts.filter((alert) => alert.level === "alert").length,
+    warning: alerts.filter((alert) => alert.level === "warning" || alert.level === "warm").length,
     resolved: alerts.filter((alert) => alert.level === "resolved").length,
   };
 
@@ -603,12 +674,12 @@ export function AlertsPage() {
       </Header>
       <div className="summary">
         <article className="card">
-          <span className="sum critical">
+          <span className="sum alert">
             <Icon name="alert" />
           </span>
           <div>
-            <strong>{counts.critical}</strong>
-            <span>Critical alert</span>
+            <strong>{counts.alert}</strong>
+            <span>Alerts</span>
           </div>
           <small>Requires attention</small>
         </article>
@@ -620,7 +691,7 @@ export function AlertsPage() {
             <strong>{counts.warning}</strong>
             <span>Warnings</span>
           </div>
-          <small>Preliminary events</small>
+          <small>Temperature above 29°C through 33°C</small>
         </article>
         <article className="card">
           <span className="sum resolved">
@@ -638,7 +709,7 @@ export function AlertsPage() {
           <div className="tabs">
             {[
               ["all", "All alerts"],
-              ["critical", "Critical"],
+              ["alert", "Alerts"],
               ["warning", "Warnings"],
               ["resolved", "Resolved"],
             ].map(([id, label]) => (
@@ -671,12 +742,12 @@ export function AlertsPage() {
           <Icon name="chevron" size={16} />
           <span>
             <i className="led yellow" /> <b>Warning</b>
-            <small>1 abnormal reading</small>
+            <small>Temperature above 29°C through 33°C</small>
           </span>
           <Icon name="chevron" size={16} />
           <span>
-            <i className="led red" /> <b>Critical</b>
-            <small>2 consecutive readings</small>
+            <i className="led red" /> <b>Alert</b>
+            <small>Temperature above 33°C</small>
           </span>
         </div>
       </section>
@@ -710,14 +781,22 @@ function AlertList({ items, readAlerts, onOpen }) {
 const DEVICE_FIELDS = ["Device name", "Microcontroller", "Sensor", "IP address", "MAC address"];
 
 export function DevicesPage() {
-  const { toast } = useApp();
+  const { readings, latest, settings, firebaseConnected, toast } = useApp();
   const [spin, setSpin] = useState(false);
+  const deviceStatus = latest && Date.now() - latest.at.getTime() <= Math.max(2 * 60 * 1000, Number(settings.interval || 5) * 3 * 60 * 1000)
+    ? "Online"
+    : "Offline";
+  const statusTone = deviceStatus === "Online" ? "normal" : "warning";
+  const sensorStatus = latest ? statusForReading(latest, readings, settings) : "No data";
+  const uptime = latest?.uptime != null
+    ? `${Math.floor(latest.uptime / 3600)}h ${Math.floor((latest.uptime % 3600) / 60)}m`
+    : "Not reported";
 
   function refresh() {
     setSpin(true);
     setTimeout(() => {
       setSpin(false);
-      toast("No device is reporting");
+      toast(latest ? `Station status refreshed · ${deviceStatus}` : "No device is reporting");
     }, 400);
   }
 
@@ -734,9 +813,9 @@ export function DevicesPage() {
           <i /><i /><i />
         </div>
         <div>
-          <Pill tone="warning">Offline</Pill>
-          <h2>No station connected</h2>
-          <p>Device details appear when a node checks in.</p>
+          <Pill tone={statusTone}>{deviceStatus}</Pill>
+          <h2>{latest ? "DHT station connected" : "No station connected"}</h2>
+          <p>{latest ? `Last reading received ${formatWhen(latest.at)}.` : "Device details appear when a node checks in."}</p>
         </div>
       </section>
       <div className="metric-grid">
@@ -744,32 +823,32 @@ export function DevicesPage() {
           <span className="m-icon green"><Icon name="activity" /></span>
           <div>
             <span>Wi-Fi signal</span>
-            <strong>—</strong>
-            <small>Not reported</small>
+            <strong>{latest ? "Connected" : "—"}</strong>
+            <small>{latest ? "Signal strength is not reported by RTDB" : "Not reported"}</small>
           </div>
         </article>
         <article className="card device-stat">
           <span className="m-icon blue"><Icon name="cloud" /></span>
           <div>
             <span>Firebase sync</span>
-            <strong>Not connected</strong>
-            <small>No sync</small>
+            <strong>{firebaseConnected ? "Connected" : "Not connected"}</strong>
+            <small>{latest ? `Last sync ${formatWhen(latest.at)}` : "No sync"}</small>
           </div>
         </article>
         <article className="card device-stat">
           <span className="m-icon purple"><Icon name="shield" /></span>
           <div>
             <span>Sensor health</span>
-            <strong>—</strong>
-            <small>Not reported</small>
+            <strong>{sensorStatus}</strong>
+            <small>{latest ? `${latest.temp.toFixed(1)}°C · ${latest.hum}% humidity` : "Not reported"}</small>
           </div>
         </article>
         <article className="card device-stat">
           <span className="m-icon orange"><Icon name="clock" /></span>
           <div>
             <span>System uptime</span>
-            <strong>—</strong>
-            <small>Not reported</small>
+            <strong>{uptime}</strong>
+            <small>{latest?.uptime != null ? "Reported by station" : "Not reported"}</small>
           </div>
         </article>
       </div>
@@ -782,9 +861,11 @@ export function DevicesPage() {
             </div>
           </div>
           <dl className="details">
-            {DEVICE_FIELDS.map((label) => (
-              <div key={label}><dt>{label}</dt><dd>—</dd></div>
-            ))}
+            <div><dt>Device name</dt><dd>DHT station</dd></div>
+            <div><dt>Microcontroller</dt><dd>ESP32</dd></div>
+            <div><dt>Sensor</dt><dd>DHT temperature & humidity</dd></div>
+            <div><dt>RTDB path</dt><dd><code>/dht_station</code></dd></div>
+            <div><dt>Last reading</dt><dd>{latest ? formatWhen(latest.at) : "—"}</dd></div>
           </dl>
         </section>
         <section className="card">
@@ -794,7 +875,12 @@ export function DevicesPage() {
               <p>Most recent device events</p>
             </div>
           </div>
-          <p className="empty-copy">No device events yet.</p>
+          {latest ? (
+            <div className="insights">
+              <p><b>{formatWhen(latest.at)}</b> — station reading received.</p>
+              <p>Temperature: <b>{latest.temp.toFixed(1)}°C</b> · Humidity: <b>{latest.hum}%</b> · Status: <b>{sensorStatus}</b>.</p>
+            </div>
+          ) : <p className="empty-copy">No device events yet.</p>}
         </section>
       </div>
     </>
@@ -835,15 +921,15 @@ export function SettingsPage() {
                 </div>
               </div>
               <div className="form-grid">
-                <NumberField label="Minimum temperature" unit="°C" help="Readings below this value are classified as low." value={settings.minTemp} onChange={(v) => patch("minTemp", v)} />
-                <NumberField label="Maximum temperature" unit="°C" help="Readings above this value are classified as high." value={settings.maxTemp} onChange={(v) => patch("maxTemp", v)} />
-                <NumberField label="Maximum humidity" unit="%" help="Triggers a warning when humidity exceeds this value." value={settings.maxHumidity} onChange={(v) => patch("maxHumidity", v)} />
+                <NumberField label="Normal temperature maximum" unit="°C" help="Temperatures at or below this value are Normal." value={settings.minTemp} onChange={(v) => patch("minTemp", v)} />
+                <NumberField label="Warning temperature maximum" unit="°C" help="Temperatures above the Normal maximum and at or below this value are Warning. Higher temperatures are Alert." value={settings.maxTemp} onChange={(v) => patch("maxTemp", v)} />
               </div>
               <div className="zones">
-                <span><i className="zone low" /><b>{settings.minTemp === "" ? "Not set" : `< ${settings.minTemp}°C`}</b> Low</span>
-                <span><i className="zone ok" /><b>{settings.minTemp === "" || settings.maxTemp === "" ? "Not set" : `${settings.minTemp}–${settings.maxTemp}°C`}</b> Normal</span>
-                <span><i className="zone high" /><b>{settings.maxTemp === "" ? "Not set" : `> ${settings.maxTemp}°C`}</b> High</span>
+                <span><i className="zone ok" /><b>≤ {settings.minTemp}°C</b> Normal</span>
+                <span><i className="zone low" /><b>&gt; {settings.minTemp}°C to ≤ {settings.maxTemp}°C</b> Warning</span>
+                <span><i className="zone high" /><b>&gt; {settings.maxTemp}°C</b> Alert</span>
               </div>
+              <p className="empty-copy">Humidity does not change the temperature status. At 70% or higher, the ESP32 reports a high-humidity advisory.</p>
             </section>
           )}
           {tab === "data" && (
@@ -858,12 +944,13 @@ export function SettingsPage() {
                 <span>Sensor reading interval</span>
                 <select value={settings.interval} onChange={(e) => patch("interval", e.target.value)}>
                   <option value="">Select an interval</option>
-                  <option value="5">Every 5 seconds</option>
-                  <option value="10">Every 10 seconds</option>
-                  <option value="30">Every 30 seconds</option>
-                  <option value="60">Every minute</option>
+                  <option value="1">Every minute</option>
+                  <option value="5">Every 5 minutes</option>
+                  <option value="10">Every 10 minutes</option>
+                  <option value="30">Every 30 minutes</option>
+                  <option value="60">Every hour</option>
                 </select>
-                <small>More frequent readings may increase device power consumption.</small>
+                <small>Controls dashboard history snapshots saved to Firebase. The ESP32 live record remains at /dht_station.</small>
               </label>
             </section>
           )}
@@ -878,7 +965,7 @@ export function SettingsPage() {
               <div className="toggles">
                 <Toggle title="Push notifications" text="Receive alerts in this dashboard" checked={settings.push} onChange={(v) => patch("push", v)} />
                 <Toggle title="Email notifications" text={`Send alert summaries to ${user.email}`} checked={settings.email} onChange={(v) => patch("email", v)} />
-                <Toggle title="Critical alerts only" text="Immediately notify after two abnormal readings" checked={settings.criticalOnly} onChange={(v) => patch("criticalOnly", v)} />
+                <Toggle title="Alert notifications only" text="Immediately notify when limits are exceeded" checked={settings.criticalOnly} onChange={(v) => patch("criticalOnly", v)} />
               </div>
             </section>
           )}
