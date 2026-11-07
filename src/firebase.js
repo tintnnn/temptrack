@@ -9,6 +9,7 @@ import {
   signOut,
 } from "firebase/auth";
 import { getDatabase, ref, set } from "firebase/database";
+import { getFirestore, collection, doc } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBvbXkgIj02qhPPbkA4uo6kWa0NLLJmIB0",
@@ -27,9 +28,12 @@ const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
 export const database = getDatabase(app);
+export const firestore = getFirestore(app);
 export const stationRef = ref(database, "dht_station");
-export const historyRootRef = ref(database, "dht_history");
-export const historyRef = (timestamp) => ref(database, `dht_history/${timestamp}`);
+export const readingsCollection = collection(firestore, "sensorReadings");
+export const readingDocument = (id) => doc(firestore, "sensorReadings", id);
+export const alertsCollection = collection(firestore, "alerts");
+export const alertDocument = (id) => doc(firestore, "alerts", id);
 export {
   browserLocalPersistence,
   browserSessionPersistence,

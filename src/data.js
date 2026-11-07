@@ -63,16 +63,40 @@ export function averagedStatus(reading, readings, settings) {
 }
 
 export function isConfirmedAlert(reading, readings, settings) {
-  if (statusForReading(reading, readings, settings) !== "Alert") return false;
-  const start = reading.at.getTime() - 3 * 60 * 1000;
-  const window = readings.filter((item) => {
-    const time = item.at.getTime();
-    return time >= start && time <= reading.at.getTime();
+  const end = reading.at.getTime();
+  const start = end - 3 * 60 * 1000;
+  const window = readings
+    .filter((item) => {
+      const time = item.at.getTime();
+      return time >= start && time <= end;
+    })
+    .sort((a, b) => a.at - b.at);
+  if (!window.length) return false;
+  const averageTemp = window.reduce((sum, item) => sum + item.temp, 0) / window.length;
+  const averageHumidity = window.reduce((sum, item) => sum + item.hum, 0) / window.length;
+  return classify(averageTemp, averageHumidity, settings) === "Alert";
+}
+
+export function threeMinuteAverageStatus(readings, settings) {
+  if (!readings.length) return null;
+  const latest = [...readings].sort((a, b) => b.at - a.at)[0];
+  const end = latest.at.getTime();
+  const start = end - 3 * 60 * 1000;
+  const window = readings.filter((reading) => {
+    const time = reading.at.getTime();
+    return time >= start && time <= end;
   });
-  if (window.length < 2) return false;
-  const oldest = window[window.length - 1];
-  if (reading.at.getTime() - oldest.at.getTime() < 3 * 60 * 1000) return false;
-  return window.every((item) => statusForReading(item, readings, settings) === "Alert");
+  if (!window.length || end - window.reduce((oldest, reading) => Math.min(oldest, reading.at.getTime()), end) < 3 * 60 * 1000) {
+    return null;
+  }
+  const averageTemp = window.reduce((sum, reading) => sum + reading.temp, 0) / window.length;
+  const averageHumidity = window.reduce((sum, reading) => sum + reading.hum, 0) / window.length;
+  return {
+    status: classify(averageTemp, averageHumidity, settings),
+    temperature: averageTemp,
+    humidity: averageHumidity,
+    at: latest.at,
+  };
 }
 
 function numberOrNull(value) {

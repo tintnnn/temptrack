@@ -404,6 +404,77 @@ td { padding: 12px 8px; border-bottom: 1px solid #f0f4f2; white-space: nowrap; }
   background: var(--green-950); color: white; border-radius: 999px; padding: 12px 16px;
   display: flex; align-items: center; gap: 8px; z-index: 20; box-shadow: 0 12px 30px rgba(0,0,0,0.2);
 }
+.alert-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(10, 28, 22, 0.58);
+}
+.alert-modal {
+  position: relative;
+  display: flex;
+  gap: 16px;
+  width: min(520px, 100%);
+  padding: 28px;
+  color: var(--green-950);
+  background: #fff;
+  border: 3px solid #e66c4e;
+  border-radius: 20px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
+}
+.alert-modal h2 {
+  margin: 4px 28px 8px 0;
+  font-family: Manrope, sans-serif;
+  font-size: clamp(20px, 3vw, 28px);
+}
+.alert-modal p:not(.eyebrow) {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.alert-modal .eyebrow {
+  margin: 0;
+  color: #c54b2f;
+}
+.alert-modal-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 52px;
+  height: 52px;
+  color: #c54b2f;
+  background: #fff0eb;
+  border-radius: 50%;
+}
+.alert-modal-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  font-size: 28px;
+  line-height: 1;
+  cursor: pointer;
+}
+.alert-modal-close:hover,
+.alert-modal-close:focus-visible {
+  color: var(--green-950);
+  background: #edf4f0;
+}
+.alert-modal.warning { border-color: #d7a12d; }
+.alert-modal.warning .alert-modal-icon { color: #a56b00; background: #fff7df; }
+.alert-modal.warning .eyebrow { color: #a56b00; }
+.alert-modal.normal { border-color: var(--green-600); }
+.alert-modal.normal .alert-modal-icon { color: var(--green-700); background: #e7f5ed; }
+.alert-modal.normal .eyebrow { color: var(--green-700); }
 .modal-scrim { position: fixed; inset: 0; background: rgba(10, 28, 22, 0.45); display: grid; place-items: center; z-index: 30; padding: 20px; }
 .modal { width: min(440px, 100%); background: white; border-radius: 18px; padding: 20px; }
 .modal h3 { margin: 0 0 8px; }
